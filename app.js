@@ -266,7 +266,7 @@ function refreshAiStatusLabels() {
 
 async function generateAIParagraph(lang, difficulty = 'medium') {
   // Point explicitly to your Node.js server running on port 3000
-  const response = await fetch('https://maxiie-typer-pro.vercel.app/api/generate-paragraph', {
+  const response = await fetch('/api/generate-paragraph', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ lang, difficulty })
