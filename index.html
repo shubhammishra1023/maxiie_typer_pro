@@ -169,6 +169,21 @@ select, .btn, textarea{
 .resultsPanel{margin-top:22px;padding:20px;background:var(--panel-2);border:1px solid var(--amber);border-radius:6px;display:none;}
 .resultsPanel.show{display:block;animation:fade .3s ease;}
 .resultsPanel h3{font-family:var(--font-display);color:var(--amber);margin:0 0 14px;}
+.results-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;}
+.btn-share{
+  display:inline-flex;align-items:center;gap:6px;
+  background:var(--ink);border:1px solid var(--amber);color:var(--amber);
+  font-family:var(--font-mono);font-size:12px;font-weight:600;
+  padding:8px 15px;border-radius:4px;cursor:pointer;transition:all .15s;
+  user-select:none;
+}
+.btn-share:hover{
+  background:rgba(224,166,64,0.12);box-shadow:0 0 10px rgba(224,166,64,0.25);
+}
+.btn-share.copied{
+  border-color:var(--correction-mint);color:var(--correction-mint);
+  background:rgba(110,201,165,0.15);box-shadow:0 0 10px rgba(110,201,165,0.25);
+}
 .resultgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;}
 .resultgrid .box{background:var(--ink);border:1px solid var(--line);border-radius:6px;padding:14px;}
 .resultgrid .box .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-family:var(--font-mono);}
@@ -213,6 +228,17 @@ textarea#customText{width:100%;min-height:140px;font-family:var(--font-body);fon
 
 footer{border-top:1px solid var(--line);padding:22px 32px;color:var(--muted);font-size:12px;font-family:var(--font-mono);text-align:center;}
 
+.header-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+.sound-toggle-btn{
+  background:var(--panel);border:1px solid var(--line);color:var(--paper);
+  font-family:var(--font-mono);font-size:12px;letter-spacing:.3px;
+  padding:8px 13px;border-radius:4px;cursor:pointer;transition:all .15s;
+  display:inline-flex;align-items:center;gap:6px;user-select:none;
+}
+.sound-toggle-btn:hover{border-color:var(--amber);background:var(--panel-2);}
+.sound-toggle-btn.sound-on{border-color:rgba(224,166,64,0.4);color:var(--amber);background:rgba(224,166,64,0.06);}
+.sound-toggle-btn.sound-off{color:var(--muted);border-color:var(--line);background:transparent;opacity:0.8;}
+
 @media(max-width:600px){
   header{padding:16px;}main{padding:20px 16px 60px;}
   .passage,.typebox{font-size:16px;}
@@ -227,15 +253,21 @@ footer{border-top:1px solid var(--line);padding:22px 32px;color:var(--muted);fon
     <div class="mark">Maxi<span>i</span>e Typer</div>
     <div class="tag">Loksewa Exam Typing Trainer</div>
   </div>
-  <nav id="mainNav">
-    <button data-view="home" class="active">Home</button>
-    <button data-view="drills-en">EN Drills</button>
-    <button data-view="drills-np">NP Drills</button>
-    <button data-view="para-en">EN Paragraph</button>
-    <button data-view="para-np">NP Paragraph</button>
-    <button data-view="custom">Custom Text</button>
-    <button data-view="stats">Stats</button>
-  </nav>
+  <div class="header-actions">
+    <button id="soundToggle" class="sound-toggle-btn sound-on" title="Toggle mechanical typewriter click sounds" aria-label="Toggle typing sound">
+      <span class="sound-icon" id="soundIcon">🔊</span>
+      <span class="sound-text" id="soundLabel">Sound: ON</span>
+    </button>
+    <nav id="mainNav">
+      <button data-view="home" class="active">Home</button>
+      <button data-view="drills-en">EN Drills</button>
+      <button data-view="drills-np">NP Drills</button>
+      <button data-view="para-en">EN Paragraph</button>
+      <button data-view="para-np">NP Paragraph</button>
+      <button data-view="custom">Custom Text</button>
+      <button data-view="stats">Stats</button>
+    </nav>
+  </div>
 </header>
 
 <main>
@@ -371,6 +403,19 @@ footer{border-top:1px solid var(--line);padding:22px 32px;color:var(--muted);fon
   <!-- STATS -->
   <section class="view" id="view-stats">
     <h1>Your Stats</h1>
+
+    <!-- Speed (WPM) Trend Chart powered by Recharts -->
+    <div class="trend-card" style="margin-top:18px;margin-bottom:28px;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:22px 24px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;flex-wrap:wrap;gap:12px;">
+        <div>
+          <h2 style="margin:0;font-size:18px;letter-spacing:0.3px;color:var(--paper);font-family:var(--font-display);">Speed (WPM) Trend — Last 10 Sessions</h2>
+          <p style="margin:4px 0 0;font-size:13px;color:var(--muted);font-family:var(--font-body);">Visual progression of Net WPM and Gross WPM generated via Recharts</p>
+        </div>
+        <div id="trendChartStats" style="display:flex;gap:8px;font-family:var(--font-mono);font-size:12px;flex-wrap:wrap;"></div>
+      </div>
+      <div id="wpmTrendChart" style="width:100%;min-height:260px;position:relative;"></div>
+    </div>
+
     <div class="statsgrid">
       <div>
         <h2>Session History</h2>
@@ -395,6 +440,14 @@ footer{border-top:1px solid var(--line);padding:22px 32px;color:var(--muted);fon
 <footer>Maxiie Typer · built for Loksewa Computer Operator exam prep · progress saved locally in this browser</footer>
 </div>
 
+<script src="vendor/react.min.js"></script>
+<script>if(!window.React)document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"><\/script>');</script>
+<script src="vendor/prop-types.min.js"></script>
+<script>if(!window.PropTypes)document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/prop-types/15.8.1/prop-types.min.js"><\/script>');</script>
+<script src="vendor/react-dom.min.js"></script>
+<script>if(!window.ReactDOM)document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"><\/script>');</script>
+<script src="vendor/recharts.min.js"></script>
+<script>if(!window.Recharts)document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.13.3/Recharts.min.js"><\/script>');</script>
 <script src="engine.js"></script>
 <script src="data.js"></script>
 <script src="app.js"></script>

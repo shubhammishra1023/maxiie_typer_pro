@@ -23,6 +23,148 @@ function addKeyErrors(lang, counts) {
   saveKeyErrors(store);
 }
 
+/* ---------- Sound Engine (Mechanical Typewriter Clicks) ---------- */
+const SoundEngine = (function () {
+  const SOUND_KEY = 'maxiie_sound_enabled_v1';
+  let audioCtx = null;
+  let enabled = localStorage.getItem(SOUND_KEY) !== 'false'; // Enabled by default
+  let lastPlayMs = 0;
+
+  function initAudioContext() {
+    if (!audioCtx) {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (AudioContextClass) {
+        audioCtx = new AudioContextClass();
+      }
+    }
+    if (audioCtx && audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(() => {});
+    }
+  }
+
+  function playKeyClick(isSpaceOrEnter = false) {
+    if (!enabled) return;
+    const nowMs = performance.now();
+    if (nowMs - lastPlayMs < 18) return; // Debounce rapid overlapping triggers
+    lastPlayMs = nowMs;
+
+    try {
+      initAudioContext();
+      if (!audioCtx) return;
+
+      const t = audioCtx.currentTime;
+
+      // 1. Transient mechanical strike / snap (noise burst through bandpass filter)
+      const bufferSize = Math.floor(audioCtx.sampleRate * 0.022); // 22ms
+      const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+      const output = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        output[i] = (Math.random() * 2 - 1) * Math.exp(-i / (audioCtx.sampleRate * 0.0032));
+      }
+
+      const noiseSource = audioCtx.createBufferSource();
+      noiseSource.buffer = buffer;
+
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = isSpaceOrEnter ? 'lowpass' : 'bandpass';
+      // Slight pitch randomization for natural mechanical variation
+      const jitter = 1 + (Math.random() * 0.16 - 0.08);
+      filter.frequency.setValueAtTime((isSpaceOrEnter ? 1400 : 3100) * jitter, t);
+      filter.Q.setValueAtTime(isSpaceOrEnter ? 1.4 : 2.4, t);
+
+      const noiseGain = audioCtx.createGain();
+      const nVol = isSpaceOrEnter ? 0.22 : 0.16;
+      noiseGain.gain.setValueAtTime(nVol, t);
+      noiseGain.gain.exponentialRampToValueAtTime(0.0001, t + (isSpaceOrEnter ? 0.035 : 0.02));
+
+      noiseSource.connect(filter);
+      filter.connect(noiseGain);
+      noiseGain.connect(audioCtx.destination);
+      noiseSource.start(t);
+
+      // 2. Resonant typewriter platen / body strike (impact thud)
+      const osc = audioCtx.createOscillator();
+      const oscGain = audioCtx.createGain();
+
+      osc.type = isSpaceOrEnter ? 'triangle' : 'sine';
+      const baseFreq = (isSpaceOrEnter ? 130 : 210) * jitter;
+      osc.frequency.setValueAtTime(baseFreq * 2.2, t);
+      osc.frequency.exponentialRampToValueAtTime(baseFreq, t + 0.012);
+
+      const oVol = isSpaceOrEnter ? 0.20 : 0.14;
+      oscGain.gain.setValueAtTime(oVol, t);
+      oscGain.gain.exponentialRampToValueAtTime(0.0001, t + (isSpaceOrEnter ? 0.045 : 0.028));
+
+      osc.connect(oscGain);
+      oscGain.connect(audioCtx.destination);
+      osc.start(t);
+      osc.stop(t + (isSpaceOrEnter ? 0.05 : 0.035));
+    } catch (err) {
+      // Ignore initial user-gesture constraints
+    }
+  }
+
+  function setEnabled(val) {
+    enabled = !!val;
+    localStorage.setItem(SOUND_KEY, enabled ? 'true' : 'false');
+    updateHeaderUI();
+    if (enabled) {
+      playKeyClick(false);
+    }
+  }
+
+  function toggle() {
+    setEnabled(!enabled);
+  }
+
+  function isEnabled() {
+    return enabled;
+  }
+
+  function updateHeaderUI() {
+    const btn = document.getElementById('soundToggle');
+    const icon = document.getElementById('soundIcon');
+    const label = document.getElementById('soundLabel');
+    if (!btn) return;
+    if (enabled) {
+      btn.classList.add('sound-on');
+      btn.classList.remove('sound-off');
+      btn.setAttribute('title', 'Mechanical typewriter typing sound is ON. Click to mute.');
+      if (icon) icon.textContent = '🔊';
+      if (label) label.textContent = 'Sound: ON';
+    } else {
+      btn.classList.add('sound-off');
+      btn.classList.remove('sound-on');
+      btn.setAttribute('title', 'Typing sound is MUTED. Click to enable.');
+      if (icon) icon.textContent = '🔇';
+      if (label) label.textContent = 'Sound: OFF';
+    }
+  }
+
+  function initHeaderToggle() {
+    const btn = document.getElementById('soundToggle');
+    if (btn) {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        initAudioContext();
+        toggle();
+      });
+    }
+    updateHeaderUI();
+
+    // Warm up audio context on first interaction
+    const warmup = () => {
+      initAudioContext();
+      window.removeEventListener('pointerdown', warmup);
+      window.removeEventListener('keydown', warmup);
+    };
+    window.addEventListener('pointerdown', warmup, { once: true });
+    window.addEventListener('keydown', warmup, { once: true });
+  }
+
+  return { playKeyClick, toggle, setEnabled, isEnabled, initHeaderToggle, initAudioContext };
+})();
+
 /* ---------- Navigation ---------- */
 function goto(view) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -40,6 +182,36 @@ document.getElementById('mainNav').addEventListener('click', e => {
 document.querySelectorAll('.card[data-goto]').forEach(c => {
   c.addEventListener('click', () => goto(c.dataset.goto));
 });
+
+/* ---------- Clipboard Helper ---------- */
+function copyTextToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text).catch(() => fallbackCopyText(text));
+  }
+  return fallbackCopyText(text);
+}
+
+function fallbackCopyText(text) {
+  return new Promise((resolve, reject) => {
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      textarea.style.top = '0';
+      textarea.setAttribute('readonly', '');
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const success = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      if (success) resolve();
+      else reject(new Error('execCommand copy failed'));
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
 
 /* ---------- Typing Test Component ---------- */
 function pad2(n) { return n < 10 ? '0' + n : '' + n; }
@@ -221,16 +393,25 @@ function createTypingTest(container, opts) {
     timerInt = setInterval(tick, 1000);
   }
 
-  // Intercept and Block the Backspace Key
+  // Intercept and Block the Backspace Key & Trigger Mechanical Typewriter Click
   typeBox.addEventListener('keydown', (e) => {
     if (e.key === 'Backspace') {
       e.preventDefault();
+      return;
+    }
+    // Trigger typewriter sound for typing keys
+    if (!finished && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (e.key.length === 1 || e.key === 'Enter') {
+        SoundEngine.playKeyClick(e.key === ' ' || e.key === 'Enter');
+      }
     }
   });
 
   typeBox.addEventListener('input', (e) => {
     if (finished) return;
     startTimerIfNeeded();
+    // Fallback trigger for mobile/virtual keyboards or IME input
+    SoundEngine.playKeyClick(typeBox.value.endsWith(' '));
     const val = typeBox.value;
     const tl = translit(val);
 
@@ -294,9 +475,39 @@ function createTypingTest(container, opts) {
 
     renderPassage(finalTyped, true);
 
+    const now = new Date();
+    const dateFormatted = now.toLocaleDateString([], {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    }) + ' at ' + now.toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    const shareSummaryText = [
+      `🏆 Maxiie Typer — Typing Session Result`,
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+      `📅 Date: ${dateFormatted}`,
+      `📝 Test: ${label || 'Typing Practice'} (${lang.toUpperCase()})`,
+      `⚡ Net Speed: ${metrics.netWpm} WPM`,
+      `🚀 Gross Speed: ${metrics.grossWpm} WPM`,
+      `🎯 Accuracy: ${metrics.accuracy}%`,
+      `📊 Words: ${metrics.correctWords} Correct / ${metrics.wrongWords} Wrong (Total: ${metrics.totalWords})`,
+      `⌨️ Keystrokes: ${metrics.correctChars} Correct / ${metrics.errorChars} Errors`,
+      `🎖️ Loksewa Marks: ${metrics.marks} / ${metrics.maxMarks}`,
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
+    ].join('\n');
+
     resultsPanel.classList.add('show');
     resultsPanel.innerHTML = `
-      <h3>Exam Session Results</h3>
+      <div class="results-header">
+        <h3 style="margin:0;">Exam Session Results</h3>
+        <button id="shareResultBtn" class="btn-share" title="Copy result summary (WPM, Accuracy, Date) to clipboard">
+          <span class="share-icon">📋</span>
+          <span class="share-text">Share Result</span>
+        </button>
+      </div>
       <div class="resultgrid">
         <div class="box"><div class="lbl">Net WPM (Score)</div><div class="val hi">${metrics.netWpm}</div></div>
         <div class="box"><div class="lbl">Gross WPM</div><div class="val">${metrics.grossWpm}</div></div>
@@ -342,6 +553,29 @@ function createTypingTest(container, opts) {
         Projected marks evaluated according to Public Service Commission (Loksewa) Computer Operator guidelines.
       </p>
     `;
+
+    const shareBtn = resultsPanel.querySelector('#shareResultBtn');
+    if (shareBtn) {
+      shareBtn.addEventListener('click', async () => {
+        try {
+          await copyTextToClipboard(shareSummaryText);
+          shareBtn.classList.add('copied');
+          shareBtn.innerHTML = `
+            <span class="share-icon">✓</span>
+            <span class="share-text">Copied to Clipboard!</span>
+          `;
+          setTimeout(() => {
+            shareBtn.classList.remove('copied');
+            shareBtn.innerHTML = `
+              <span class="share-icon">📋</span>
+              <span class="share-text">Share Result</span>
+            `;
+          }, 2500);
+        } catch (err) {
+          window.prompt('Copy your typing result summary:', shareSummaryText);
+        }
+      });
+    }
 
     saveHistoryEntry({
       date: new Date().toISOString(),
@@ -573,8 +807,150 @@ function renderKeyboardHeat(containerEl, errCounts, isNepali = false) {
   });
 }
 
+/* ---------- Recharts WPM Trend Chart ---------- */
+let rechartsRootInstance = null;
+
+function renderWpmTrendChart(sessions) {
+  const chartEl = document.getElementById('wpmTrendChart');
+  const statsEl = document.getElementById('trendChartStats');
+  if (!chartEl) return;
+
+  if (!sessions || sessions.length === 0) {
+    chartEl.innerHTML = '<div class="emptystate" style="display:flex;align-items:center;justify-content:center;height:240px;color:var(--muted);font-style:italic;">No completed sessions yet. Finish a typing test to see your speed progression graph!</div>';
+    if (statsEl) statsEl.innerHTML = '';
+    return;
+  }
+
+  // Get last 10 sessions in chronological sequence (oldest on left, newest on right)
+  const last10Raw = sessions.slice(0, 10).reverse();
+  const chartData = last10Raw.map((s, idx) => {
+    const d = new Date(s.date);
+    const dateFormatted = !isNaN(d.getTime())
+      ? d.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : `Session ${idx + 1}`;
+    const shortLabel = `#${idx + 1}`;
+    return {
+      sessionNum: idx + 1,
+      name: shortLabel,
+      netWpm: Number(s.netWpm) || 0,
+      grossWpm: Number(s.grossWpm !== undefined ? s.grossWpm : s.netWpm) || 0,
+      accuracy: Number(s.accuracy) || 0,
+      lang: (s.lang || 'en').toUpperCase(),
+      testLabel: s.label || 'Typing Test',
+      date: dateFormatted
+    };
+  });
+
+  // Calculate and render header metrics
+  if (statsEl) {
+    const netVals = chartData.map(d => d.netWpm);
+    const avgNet = Math.round(netVals.reduce((a, b) => a + b, 0) / netVals.length);
+    const peakNet = Math.max(...netVals);
+    const diff = netVals[netVals.length - 1] - netVals[0];
+    const diffStr = diff > 0 ? `+${diff}` : `${diff}`;
+    const diffColor = diff > 0 ? 'var(--correction-mint)' : (diff < 0 ? 'var(--ribbon-red)' : 'var(--muted)');
+
+    statsEl.innerHTML = `
+      <span style="background:var(--panel-2);border:1px solid var(--line);border-radius:3px;padding:4px 9px;">10-Session Avg: <b style="color:var(--paper);">${avgNet} WPM</b></span>
+      <span style="background:var(--panel-2);border:1px solid var(--line);border-radius:3px;padding:4px 9px;">Peak: <b style="color:var(--amber);">${peakNet} WPM</b></span>
+      <span style="background:var(--panel-2);border:1px solid var(--line);border-radius:3px;padding:4px 9px;">Trend: <b style="color:${diffColor};">${diffStr} WPM</b></span>
+    `;
+  }
+
+  // Check if Recharts and React are loaded on window
+  if (!window.React || !window.ReactDOM || !window.Recharts) {
+    setTimeout(() => {
+      if (window.Recharts) renderWpmTrendChart(sessions);
+    }, 120);
+    return;
+  }
+
+  const { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } = window.Recharts;
+  const e = React.createElement;
+
+  const CustomTooltip = ({ active, payload, label }) => {
+    if (!active || !payload || !payload.length) return null;
+    const item = payload[0].payload;
+    return e('div', {
+      style: {
+        background: '#24262d',
+        border: '1px solid #3a3d47',
+        borderRadius: '6px',
+        padding: '10px 14px',
+        boxShadow: '0 8px 24px rgba(0,0,0,0.65)',
+        fontFamily: 'var(--font-mono)',
+        fontSize: '12px',
+        lineHeight: '1.6'
+      }
+    },
+      e('div', { style: { fontWeight: '700', color: 'var(--amber)', fontSize: '13px', marginBottom: '2px' } }, `${item.testLabel} (${item.lang})`),
+      e('div', { style: { color: 'var(--muted)', fontSize: '11px', marginBottom: '6px' } }, item.date),
+      e('div', { style: { color: 'var(--amber)' } }, `● Net WPM: `, e('b', null, item.netWpm)),
+      e('div', { style: { color: 'var(--correction-mint)' } }, `● Gross WPM: `, e('b', null, item.grossWpm)),
+      e('div', { style: { color: 'var(--paper)', marginTop: '2px' } }, `Accuracy: ${item.accuracy}%`)
+    );
+  };
+
+  const ChartComponent = () => {
+    return e(ResponsiveContainer, { width: '100%', height: 260 },
+      e(LineChart, { data: chartData, margin: { top: 12, right: 20, left: -15, bottom: 5 } },
+        e(CartesianGrid, { strokeDasharray: '3 3', stroke: '#3a3d47', opacity: 0.6 }),
+        e(XAxis, {
+          dataKey: 'name',
+          stroke: '#8b8f9c',
+          tick: { fill: '#8b8f9c', fontSize: 11, fontFamily: 'var(--font-mono)' },
+          tickLine: { stroke: '#3a3d47' }
+        }),
+        e(YAxis, {
+          stroke: '#8b8f9c',
+          tick: { fill: '#8b8f9c', fontSize: 11, fontFamily: 'var(--font-mono)' },
+          tickLine: { stroke: '#3a3d47' },
+          domain: [0, 'auto'],
+          allowDecimals: false
+        }),
+        e(Tooltip, { content: e(CustomTooltip) }),
+        e(Legend, {
+          wrapperStyle: { fontSize: '12px', fontFamily: 'var(--font-mono)', paddingTop: '8px' }
+        }),
+        e(Line, {
+          type: 'monotone',
+          dataKey: 'netWpm',
+          name: 'Net WPM (Score)',
+          stroke: '#e0a640',
+          strokeWidth: 2.5,
+          activeDot: { r: 6, fill: '#e0a640', stroke: '#1b1d22', strokeWidth: 2 },
+          dot: { r: 4, fill: '#e0a640', stroke: '#1b1d22', strokeWidth: 1.5 }
+        }),
+        e(Line, {
+          type: 'monotone',
+          dataKey: 'grossWpm',
+          name: 'Gross WPM',
+          stroke: '#6ec9a5',
+          strokeWidth: 1.8,
+          strokeDasharray: '4 4',
+          dot: { r: 3, fill: '#6ec9a5', stroke: '#1b1d22' }
+        })
+      )
+    );
+  };
+
+  try {
+    if (!rechartsRootInstance && ReactDOM.createRoot) {
+      rechartsRootInstance = ReactDOM.createRoot(chartEl);
+    }
+    if (rechartsRootInstance) {
+      rechartsRootInstance.render(e(ChartComponent));
+    } else if (ReactDOM.render) {
+      ReactDOM.render(e(ChartComponent), chartEl);
+    }
+  } catch (err) {
+    console.error('Error rendering Recharts WPM trend:', err);
+  }
+}
+
 function renderStats() {
   const h = loadHistory();
+  renderWpmTrendChart(h);
   const historyWrap = document.getElementById('historyWrap');
   if (historyWrap) {
     if (!h.length) {
@@ -633,5 +1009,6 @@ document.getElementById('clearStats').addEventListener('click', () => {
 });
 
 /* ---------- init ---------- */
+SoundEngine.initHeaderToggle();
 renderHomePills();
 refreshAiStatusLabels();
