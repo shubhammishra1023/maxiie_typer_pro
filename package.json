@@ -8,6 +8,10 @@
     "start": "node server.js",
     "build": "echo 'Build complete'"
   },
+  "packageManager": "bun@1.4.1",
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "@google/genai": "^2.23.0",
     "express": "^4.21.2",
