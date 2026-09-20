@@ -1,0 +1,6 @@
+{
+  "name": "Maxiie Typer",
+  "description": "Loksewa exam typing trainer with English and Nepali typing tests, drills, custom text, and AI paragraph generation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
